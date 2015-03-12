@@ -46,6 +46,7 @@ class mongodb::server::config {
   $profile         = $mongodb::server::profile
   $set_parameter   = $mongodb::server::set_parameter
   $syslog          = $mongodb::server::syslog
+  $storage_engine  = $mongodb::server::storage_engine
 
   File {
     owner => $user,

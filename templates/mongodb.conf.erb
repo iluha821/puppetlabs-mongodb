@@ -167,3 +167,6 @@ setParameter = <%= @set_parameter %>
 <% if @syslog -%>
 syslog = <%= @syslog %>
 <% end -%>
+<% if @storage_engine -%>
+storage.engine = <%= @storage_engine %>
+<% end -%>
