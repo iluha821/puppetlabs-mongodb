@@ -2,7 +2,7 @@
 
 # System Log
 
-<% if @logpath -%>
+<% if @logpath and not @logpath.empty? -%>
 systemLog.path: <%= @logpath %>
 systemLog.destination: file
 <% if @logappend -%>
@@ -61,7 +61,9 @@ storage.quota.enforced: <%= @quota %>
 storage.quota.maxFilesPerDB: <%= @quotafiles %>
 <% end -%>
 <% end -%>
-
+<% if @storage_engine -%>
+storage.engine: <%= @storage_engine %>
+<% end -%>
 
 #Security
 <% if @auth -%>
