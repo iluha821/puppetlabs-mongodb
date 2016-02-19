@@ -80,8 +80,23 @@ Puppet::Type.type(:mongodb_replset).provide(:mongo, :parent => Puppet::Provider:
     mongo_command('rs.status()', host)
   end
 
-  def rs_add(host, master)
-    mongo_command("rs.add('#{host}')", master)
+  def rs_add(host, master, priority=nil, hidden=nil, votes=nil)
+    priority_conf = ""
+    if priority
+      priority_conf = ", priority: #{priority} "
+    end
+
+    hidden_conf = ""
+    if hidden
+      hidden_conf = ", hidden: #{hidden} "
+    end
+
+    votes_conf = ""
+    if votes
+      votes_conf = ", votes: #{votes} "
+    end
+
+    mongo_command("rs.add('{host: '#{host}' #{priority_conf} #{hidden_conf} #{votes_conf} }')", master)
   end
 
   def rs_remove(host, master)
@@ -168,6 +183,22 @@ Puppet::Type.type(:mongodb_replset).provide(:mongo, :parent => Puppet::Provider:
     return alive
   end
 
+  def extract_hosts(hosts_config)
+    return hosts_config.keys
+  end
+
+  def priority(hosts_conf, host)
+    return hosts_conf[host]['priority']
+  end
+
+  def hidden(hosts_conf, host)
+    return hosts_conf[host]['hidden']
+  end
+
+  def votes(hosts_conf, host)
+    return hosts_conf[host]['votes']
+  end
+
   def set_members
     if @property_flush[:ensure] == :absent
       # TODO: I don't know how to remove a node from a replset; unimplemented
@@ -180,8 +211,8 @@ Puppet::Type.type(:mongodb_replset).provide(:mongo, :parent => Puppet::Provider:
 
     if ! @property_flush[:members].empty?
       # Find the alive members so we don't try to add dead members to the replset
-      alive_hosts = alive_members(@property_flush[:members])
-      dead_hosts  = @property_flush[:members] - alive_hosts
+      alive_hosts = alive_members(extract_hosts(@property_flush[:members])
+      dead_hosts  = extract_hosts(@property_flush[:members]) - alive_hosts
       Puppet.debug "Alive members: #{alive_hosts.inspect}"
       Puppet.debug "Dead members: #{dead_hosts.inspect}" unless dead_hosts.empty?
       raise Puppet::Error, "Can't connect to any member of replicaset #{self.name}." if alive_hosts.empty?
@@ -198,7 +229,26 @@ Puppet::Type.type(:mongodb_replset).provide(:mongo, :parent => Puppet::Provider:
         if rs_arbiter == host
           arbiter_conf = ", arbiterOnly: \"true\""
         end
-        "{ _id: #{id}, host: \"#{host}\"#{arbiter_conf} }"
+        
+        priority_conf = ""
+        priority_val = priority(@property_flush[:members], host)
+        if priority_val
+          priority_conf = ", priority: #{priority_val} "
+        end
+
+        hidden_conf = ""
+        hidden_val = hidden(@property_flush[:members], host)
+        if hidden_val
+          hidden_conf = ", hidden: #{hidden_val} "
+        end
+
+        votes_conf = ""
+        votes_val = votes(@property_flush[:members], host)
+        if votes_val
+          votes_conf = ", votes: #{votes_val} "
+        end
+
+        "{ _id: #{id}, host: \"#{host}\"#{arbiter_conf} #{priority_conf} #{hidden_conf} #{votes_conf} }"
       end.join(',')
       conf = "{ _id: \"#{self.name}\", members: [ #{hostconf} ] }"
 
@@ -241,7 +291,7 @@ Puppet::Type.type(:mongodb_replset).provide(:mongo, :parent => Puppet::Provider:
           if rs_arbiter == host
             output = rs_add_arbiter(host, master)
           else
-            output = rs_add(host, master)
+            output = rs_add(host, master, priority=priority(@property_flush[:members], host), hidden=hidden(@property_flush[:members], host), votes=votes(@property_flush[:members], host))
           end
           if output['ok'] == 0
             raise Puppet::Error, "rs.add() failed to add host to replicaset #{self.name}: #{output['errmsg']}"
