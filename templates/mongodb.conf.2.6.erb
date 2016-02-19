@@ -1,6 +1,6 @@
-# mongo.conf - generated from Puppet
+#mongo.conf - generated from Puppet
 
-# System Log
+#System Log
 
 <% if @logpath and not @logpath.empty? -%>
 systemLog.path: <%= @logpath %>
@@ -44,7 +44,7 @@ storage.journal.enabled: false
 storage.journal.enabled: true
 <% end -%>
 <% if @noprealloc -%>
-storage.preallocDataFiles: <%= @noprealloc %>
+storage.preallocDataFiles: <%= !@noprealloc %>
 <% end -%>
 <% if @nssize -%>
 storage.nsSize: <%= @nssize %>
@@ -61,9 +61,10 @@ storage.quota.enforced: <%= @quota %>
 storage.quota.maxFilesPerDB: <%= @quotafiles %>
 <% end -%>
 <% end -%>
-<% if @storage_engine -%>
-storage.engine: <%= @storage_engine %>
+<% if @storage_engine_internal -%>
+storage.engine: <%= @storage_engine_internal %>
 <% end -%>
+
 
 #Security
 <% if @auth -%>
@@ -79,7 +80,10 @@ security.javascriptEnabled: <%= @noscripting %>
 <% end -%>
 
 
-# Net
+#Net
+<% if @ipv6 -%>
+net.ipv6=<%= @ipv6 %>
+<% end -%>
 <% if @bind_ip -%>
 net.bindIp:  <%= Array(@bind_ip).join(',') %>
 <% end -%>
@@ -95,8 +99,8 @@ net.http.RESTInterfaceEnabled: true
 <% if @maxconns -%>
 net.maxIncomingConnections: <%= @maxconns %>
 <% end -%>
-<% if @nohttpinterface -%>
-net.http.enabled: <%= @nohttpinterface %>
+<% if ! @nohttpinterface.nil? -%>
+net.http.enabled: <%= ! @nohttpinterface %>
 <% end -%>
 
 #Replication
@@ -107,7 +111,7 @@ replication.replSetName: <%= @replset %>
 replication.oplogSizeMB: <%= @oplog_size %>
 <% end -%>
 
-# Sharding
+#Sharding
 <% if @configsvr -%>
 sharding.clusterRole: configsvr
 <% end -%>

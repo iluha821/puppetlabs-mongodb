@@ -1,9 +1,10 @@
-Gemfile.lock
-*.idea
-*.swp
-*.tmp
-tmp/
 pkg/
-spec/fixtures/manifests
-.rspec_system/
+Gemfile.lock
+vendor/
+spec/fixtures/
 .vagrant/
+.bundle/
+coverage/
+log/
+.idea/
+*.iml
