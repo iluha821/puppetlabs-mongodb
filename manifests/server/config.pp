@@ -61,7 +61,6 @@ class mongodb::server::config {
   $ssl             = $mongodb::server::ssl
   $ssl_key         = $mongodb::server::ssl_key
   $ssl_ca          = $mongodb::server::ssl_ca
-  $storage_engine  = $mongodb::server::storage_engine
   $version         = $mongodb::server::version
 
   File {

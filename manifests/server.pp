@@ -69,7 +69,6 @@ class mongodb::server (
   $ssl_key         = undef,
   $ssl_ca          = undef,
   $restart         = $mongodb::params::restart,
-  $storage_engine  = undef,
 
   $create_admin    = $mongodb::params::create_admin,
   $admin_username  = $mongodb::params::admin_username,
