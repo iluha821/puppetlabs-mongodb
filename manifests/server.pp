@@ -148,7 +148,7 @@ class mongodb::server (
         $replset_config_REAL = $replset_config
 
       } else {
-        validate_array($replset_members)
+        #TEMPvalidate_array($replset_members)
 
         # Build up a config hash
         $replset_config_REAL = {

@@ -155,6 +155,7 @@ Puppet::Type.type(:mongodb_replset).provide(:mongo, :parent => Puppet::Provider:
       begin
         Puppet.debug "Checking replicaset member #{host} ..."
         status = rs_status(host)
+        Puppet.debug "Status: #{status}"
         if status.has_key?('errmsg') and status['errmsg'] == 'not running with --replSet'
           raise Puppet::Error, "Can't configure replicaset #{self.name}, host #{host} is not supposed to be part of a replicaset."
         end
@@ -184,19 +185,21 @@ Puppet::Type.type(:mongodb_replset).provide(:mongo, :parent => Puppet::Provider:
   end
 
   def extract_hosts(hosts_config)
-    return hosts_config.keys
+    Puppet.debug "TEST4: #{hosts_config}"
+    return hosts_config[0].keys
   end
 
   def priority(hosts_conf, host)
-    return hosts_conf[host]['priority']
+    Puppet.debug "Host conf #{hosts_conf} host #{host}"
+    return hosts_conf[0][host]['priority']
   end
 
   def hidden(hosts_conf, host)
-    return hosts_conf[host]['hidden']
+    return hosts_conf[0][host]['hidden']
   end
 
   def votes(hosts_conf, host)
-    return hosts_conf[host]['votes']
+    return hosts_conf[0][host]['votes']
   end
 
   def set_members
@@ -209,22 +212,35 @@ Puppet::Type.type(:mongodb_replset).provide(:mongo, :parent => Puppet::Provider:
       return
     end
 
-    if ! @property_flush[:members].empty?
+    if false and ! @property_flush[:members].empty?
+      extracted_hosts=extract_hosts(@property_flush[:members])
+      Puppet.debug "TEST: #{@property_flush[:members]}"
+      Puppet.debug "TEST2: #{extracted_hosts}"
       # Find the alive members so we don't try to add dead members to the replset
-      alive_hosts = alive_members(extract_hosts(@property_flush[:members])
-      dead_hosts  = extract_hosts(@property_flush[:members]) - alive_hosts
+      alive_hosts = alive_members(extracted_hosts)
+      dead_hosts  = extracted_hosts - alive_hosts
       Puppet.debug "Alive members: #{alive_hosts.inspect}"
       Puppet.debug "Dead members: #{dead_hosts.inspect}" unless dead_hosts.empty?
       raise Puppet::Error, "Can't connect to any member of replicaset #{self.name}." if alive_hosts.empty?
     else
-      alive_hosts = []
+      Puppet.debug "pre TEST3"
+      alive_hosts = extract_hosts(@property_flush[:members])
+      Puppet.debug "TEST3 #{alive_hosts}"
     end
+
+    Puppet.debug "Pre TEST5"
+    cond1 = @property_flush[:ensure] == :present
+    cond2 = @property_hash[:ensure] != :present
+    cond3 = !master_host(alive_hosts)
+    Puppet.debug "TEST5 #{cond1} and #{cond2} and #{cond3}"
 
     if @property_flush[:ensure] == :present and @property_hash[:ensure] != :present and !master_host(alive_hosts)
       Puppet.debug "Initializing the replset #{self.name}"
 
       # Create a replset configuration
       hostconf = alive_hosts.each_with_index.map do |host,id|
+        Puppet.debug "Host ID #{host} #{id}"
+
         arbiter_conf = ""
         if rs_arbiter == host
           arbiter_conf = ", arbiterOnly: \"true\""
@@ -233,7 +249,7 @@ Puppet::Type.type(:mongodb_replset).provide(:mongo, :parent => Puppet::Provider:
         priority_conf = ""
         priority_val = priority(@property_flush[:members], host)
         if priority_val
-          priority_conf = ", priority: #{priority_val} "
+          priority_conf = ", priority: #{priority_val.to_i} "
         end
 
         hidden_conf = ""
@@ -245,13 +261,16 @@ Puppet::Type.type(:mongodb_replset).provide(:mongo, :parent => Puppet::Provider:
         votes_conf = ""
         votes_val = votes(@property_flush[:members], host)
         if votes_val
-          votes_conf = ", votes: #{votes_val} "
+          votes_conf = ", votes: #{votes_val.to_i} "
         end
 
         "{ _id: #{id}, host: \"#{host}\"#{arbiter_conf} #{priority_conf} #{hidden_conf} #{votes_conf} }"
       end.join(',')
-      conf = "{ _id: \"#{self.name}\", members: [ #{hostconf} ] }"
 
+      Puppet.debug "TEST6 #{hostconf}"
+      conf = "{ _id: \"#{self.name}\", members: [ #{hostconf} ] }"
+      Puppet.debug "TEST6b #{conf}"
+      
       # Set replset members with the first host as the master
       output = rs_initiate(conf, alive_hosts[0])
       if output['ok'] == 0
