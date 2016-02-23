@@ -54,6 +54,7 @@ class mongodb::server (
   $replset         = undef,
   $replset_config  = undef,
   $replset_members = undef,
+  $replset_members_with_params = undef,
   $configsvr       = undef,
   $shardsvr        = undef,
   $rest            = undef,
@@ -135,9 +136,9 @@ class mongodb::server (
   # Set-up replicasets
   if $replset {
     # Check that we've got either a members array or a replset_config hash
-    if $replset_members and $replset_config {
-      fail('You can provide either replset_members or replset_config, not both.')
-    } elsif !$replset_members and !$replset_config {
+    if $replset_members and $replset_config and $replset_members_with_params {
+      fail('You can provide either replset_members or replset_config or replset_members_with_params, not > 1.')
+    } elsif !$replset_members and !$replset_config and !$replset_members_with_params {
       # No members or config provided. Warn about it.
       warning('Replset specified, but no replset_members or replset_config provided.')
     } else {
@@ -147,8 +148,8 @@ class mongodb::server (
         # Copy it to REAL value
         $replset_config_REAL = $replset_config
 
-      } else {
-        #TEMPvalidate_array($replset_members)
+      } elsif $replset_members {
+        validate_array($replset_members)
 
         # Build up a config hash
         $replset_config_REAL = {
@@ -157,7 +158,17 @@ class mongodb::server (
             'members'  => $replset_members
           }
         }
-      }
+      } else {
+        validate_hash($replset_members_with_params)
+
+        # Build up a config hash
+        $replset_config_REAL = {
+          "${replset}" => {
+            'ensure'   => 'present',
+            'members'  => $replset_members_with_params
+          }
+        }
+      } 
 
       # Wrap the replset class
       class { 'mongodb::replset':

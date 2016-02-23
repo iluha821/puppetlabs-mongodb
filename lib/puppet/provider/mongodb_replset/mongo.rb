@@ -83,7 +83,7 @@ Puppet::Type.type(:mongodb_replset).provide(:mongo, :parent => Puppet::Provider:
   def rs_add(host, master, priority=nil, hidden=nil, votes=nil)
     priority_conf = ""
     if priority
-      priority_conf = ", priority: #{priority} "
+      priority_conf = ", priority: #{priority.to_i} "
     end
 
     hidden_conf = ""
@@ -93,7 +93,7 @@ Puppet::Type.type(:mongodb_replset).provide(:mongo, :parent => Puppet::Provider:
 
     votes_conf = ""
     if votes
-      votes_conf = ", votes: #{votes} "
+      votes_conf = ", votes: #{votes.to_i} "
     end
 
     mongo_command("rs.add('{host: '#{host}' #{priority_conf} #{hidden_conf} #{votes_conf} }')", master)
@@ -212,7 +212,7 @@ Puppet::Type.type(:mongodb_replset).provide(:mongo, :parent => Puppet::Provider:
       return
     end
 
-    if false and ! @property_flush[:members].empty?
+    if ! @property_flush[:members].empty?
       extracted_hosts=extract_hosts(@property_flush[:members])
       Puppet.debug "TEST: #{@property_flush[:members]}"
       Puppet.debug "TEST2: #{extracted_hosts}"
