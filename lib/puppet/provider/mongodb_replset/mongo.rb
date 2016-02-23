@@ -217,7 +217,7 @@ Puppet::Type.type(:mongodb_replset).provide(:mongo, :parent => Puppet::Provider:
       Puppet.debug "TEST: #{@property_flush[:members]}"
       Puppet.debug "TEST2: #{extracted_hosts}"
       # Find the alive members so we don't try to add dead members to the replset
-      alive_hosts = alive_members(extracted_hosts)
+      alive_hosts = extracted_hosts
       dead_hosts  = extracted_hosts - alive_hosts
       Puppet.debug "Alive members: #{alive_hosts.inspect}"
       Puppet.debug "Dead members: #{dead_hosts.inspect}" unless dead_hosts.empty?
