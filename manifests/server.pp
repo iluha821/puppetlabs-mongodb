@@ -168,7 +168,7 @@ class mongodb::server (
             'members'  => $replset_members_with_params
           }
         }
-      } 
+      }
 
       # Wrap the replset class
       class { 'mongodb::replset':

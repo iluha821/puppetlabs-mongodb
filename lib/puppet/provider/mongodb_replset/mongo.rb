@@ -191,15 +191,24 @@ Puppet::Type.type(:mongodb_replset).provide(:mongo, :parent => Puppet::Provider:
 
   def priority(hosts_conf, host)
     Puppet.debug "Host conf #{hosts_conf} host #{host}"
-    return hosts_conf[0][host]['priority']
+    if hosts_conf[0][host]
+      return hosts_conf[0][host]['priority']
+    else
+      return nil
   end
 
   def hidden(hosts_conf, host)
-    return hosts_conf[0][host]['hidden']
+    if hosts_conf[0][host]
+      return hosts_conf[0][host]['hidden']
+    else
+      return nil
   end
 
   def votes(hosts_conf, host)
-    return hosts_conf[0][host]['votes']
+    if hosts_conf[0][host]
+      return hosts_conf[0][host]['votes']
+    else
+      return nil
   end
 
   def set_members
