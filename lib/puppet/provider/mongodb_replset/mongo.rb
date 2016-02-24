@@ -195,6 +195,7 @@ Puppet::Type.type(:mongodb_replset).provide(:mongo, :parent => Puppet::Provider:
       return hosts_conf[0][host]['priority']
     else
       return nil
+    end
   end
 
   def hidden(hosts_conf, host)
@@ -202,6 +203,7 @@ Puppet::Type.type(:mongodb_replset).provide(:mongo, :parent => Puppet::Provider:
       return hosts_conf[0][host]['hidden']
     else
       return nil
+    end
   end
 
   def votes(hosts_conf, host)
@@ -209,6 +211,7 @@ Puppet::Type.type(:mongodb_replset).provide(:mongo, :parent => Puppet::Provider:
       return hosts_conf[0][host]['votes']
     else
       return nil
+    end
   end
 
   def set_members
