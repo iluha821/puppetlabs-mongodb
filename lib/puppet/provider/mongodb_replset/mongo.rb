@@ -214,6 +214,46 @@ Puppet::Type.type(:mongodb_replset).provide(:mongo, :parent => Puppet::Provider:
     end
   end
 
+  def ssl_on(hosts_conf, host)
+    if hosts_conf[0][host]
+      return hosts_conf[0][host]['ssl']
+    else
+      return false
+    end
+  end
+
+  def sslCAFile(hosts_conf, host)
+    if hosts_conf[0][host]
+      return hosts_conf[0][host]['sslCAFile']
+    else
+      return false
+    end
+  end
+
+  def sslPEMKeyFile(hosts_conf, host)
+    if hosts_conf[0][host]
+      return hosts_conf[0][host]['sslPEMKeyFile']
+    else
+      return false
+    end
+  end
+
+  def authenticationDatabase(hosts_conf, host)
+    if hosts_conf[0][host]
+      return hosts_conf[0][host]['authenticationDatabase']
+    else
+      return false
+    end
+  end
+
+  def username(hosts_conf, host)
+    if hosts_conf[0][host]
+      return hosts_conf[0][host]['username']
+    else
+      return false
+    end
+  end   
+
   def set_members
     if @property_flush[:ensure] == :absent
       # TODO: I don't know how to remove a node from a replset; unimplemented
@@ -335,12 +375,12 @@ Puppet::Type.type(:mongodb_replset).provide(:mongo, :parent => Puppet::Provider:
   end
 
   def mongo_command(command, host, retries=4)
-    self.class.mongo_command(command, host, retries)
+    self.class.ssl_fallback_mongo_command(command, host, retries)
   end
 
-  def self.mongo_command(command, host=nil, retries=4)
+  def self.mongo_command(command, host=nil, retries=4, ssl = false, sslCAFile = nil, sslPEMKeyFile = nil, authenticationDatabase = nil, username = nil)
     begin
-      output = mongo_eval("printjson(#{command})", 'admin', retries, host)
+      output = mongo_eval("printjson(#{command})", 'admin', retries, host, ssl, sslCAFile , sslPEMKeyFile, authenticationDatabase, username)
     rescue Puppet::ExecutionFailure => e
       Puppet.debug "Got an exception: #{e}"
       raise
@@ -355,7 +395,27 @@ Puppet::Type.type(:mongodb_replset).provide(:mongo, :parent => Puppet::Provider:
 
     # Parse the JSON output and return
     JSON.parse(output)
+  end
 
+  def self.ssl_fallback_mongo_command(command, host=nil, retries=4)
+    begin
+      output = self.class.mongo_command(command, host, retries)
+    rescue => e
+      #retry with ssl on
+      #if no ssl, raise e
+      #else get       
+      ssl = ssl_on(@property_flush[:members], host)
+      if ssl
+        sslCAFile = sslCAFile(@property_flush[:members], host)
+        sslPEMKeyFile = sslPEMKeyFile(@property_flush[:members], host)
+        authenticationDatabase = authenticationDatabase(@property_flush[:members], host)
+        username = username(@property_flush[:members], host)
+        output = self.class.mongo_command(command, host, retries, ssl, sslCAFile, sslPEMKeyFile, authenticationDatabase, username)
+      else
+        raise e
+      end
+    end
+    output
   end
 
 end
