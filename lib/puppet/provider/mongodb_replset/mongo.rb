@@ -18,6 +18,7 @@ Puppet::Type.type(:mongodb_replset).provide(:mongo, :parent => Puppet::Provider:
   mk_resource_methods
 
   def initialize(resource={})
+    Puppet.debug "Initialize"
     super(resource)
     @property_flush = {}
   end
@@ -27,7 +28,13 @@ Puppet::Type.type(:mongodb_replset).provide(:mongo, :parent => Puppet::Provider:
   end
 
   def self.instances
-    instance = get_replset_properties
+    Puppet.debug "instances"
+    begin
+      instance = get_replset_properties
+    rescue => e
+      Puppet.debug "Got an exception: #{e}"
+    end
+
     if instance
       # There can only be one replset per node
       [new(instance)]
@@ -37,6 +44,7 @@ Puppet::Type.type(:mongodb_replset).provide(:mongo, :parent => Puppet::Provider:
   end
 
   def self.prefetch(resources)
+    Puppet.debug "Prefetch"
     instances.each do |prov|
       if resource = resources[prov.name]
         resource.provider = prov
@@ -58,6 +66,7 @@ Puppet::Type.type(:mongodb_replset).provide(:mongo, :parent => Puppet::Provider:
   end
 
   def flush
+    Puppet.debug "flush"
     set_members
     @property_hash = self.class.get_replset_properties
   end
@@ -69,7 +78,7 @@ Puppet::Type.type(:mongodb_replset).provide(:mongo, :parent => Puppet::Provider:
   end
 
   def rs_initiate(conf, master)
-    set_members
+    Puppet.debug "rs_initiate auth_enabled #{auth_enabled}"
     if auth_enabled
       return mongo_command("rs.initiate(#{conf})", initialize_host)
     else
@@ -216,7 +225,10 @@ Puppet::Type.type(:mongodb_replset).provide(:mongo, :parent => Puppet::Provider:
   end
 
   def ssl_on(host)
-    hosts_conf = @property_flush[:members]
+    return self.class.ssl_on(host, @property_flush[:members])
+  end
+
+  def self.ssl_on(host, hosts_conf)
     if hosts_conf[0][host]
       return hosts_conf[0][host]['ssl']
     else
@@ -224,52 +236,70 @@ Puppet::Type.type(:mongodb_replset).provide(:mongo, :parent => Puppet::Provider:
     end
   end
 
+
   def sslCAFile(host)
-    hosts_conf = @property_flush[:members]
+    return self.class.sslCAFile(host, @property_flush[:members])
+  end
+
+  def self.sslCAFile(host, hosts_conf)
     if hosts_conf[0][host]
       return hosts_conf[0][host]['sslCAFile']
     else
-      return false
+      return nil
     end
   end
 
+
   def sslPEMKeyFile(host)
-    hosts_conf = @property_flush[:members]
+    return self.class.sslPEMKeyFile(host, @property_flush[:members])
+  end
+
+  def self.sslPEMKeyFile(host, hosts_conf)
     if hosts_conf[0][host]
       return hosts_conf[0][host]['sslPEMKeyFile']
     else
-      return false
+      return nil
     end
   end
 
   def authenticationDatabase(host)
-    hosts_conf = @property_flush[:members]
+    return self.class.authenticationDatabase(host, @property_flush[:members])
+  end
+
+  def self.authenticationDatabase(host, hosts_conf)
     if hosts_conf[0][host]
       return hosts_conf[0][host]['authenticationDatabase']
     else
-      return false
+      return nil
     end
   end
 
   def authenticationMechanism(host)
-    hosts_conf = @property_flush[:members]
+    return self.class.authenticationMechanism(host, @property_flush[:members])
+  end
+
+  def self.authenticationMechanism(host, hosts_conf)
     if hosts_conf[0][host]
       return hosts_conf[0][host]['authenticationMechanism']
     else
-      return false
+      return nil
     end
   end
 
   def username(host)
-    hosts_conf = @property_flush[:members]
+    return self.class.username(host, @property_flush[:members])
+  end
+
+  def self.username(host, hosts_conf)
     if hosts_conf[0][host]
       return hosts_conf[0][host]['username']
     else
-      return false
+      return nil
     end
   end   
 
   def set_members
+    Puppet.debug "Set_members"
     if @property_flush[:ensure] == :absent
       # TODO: I don't know how to remove a node from a replset; unimplemented
       #Puppet.debug "Removing all members from replset #{self.name}"
@@ -379,21 +409,22 @@ Puppet::Type.type(:mongodb_replset).provide(:mongo, :parent => Puppet::Provider:
   end
 
   def mongo_command(command, host, retries=4)
-    Puppet.debug "mongo_command #{command}, host #{host}, retries #{retries} -> trying ssl_fallback"
-    self.class.mongo_command(command, host, retries)
+    Puppet.debug "mongo_command #{command}, host #{host}, retries #{retries}"
+    ssl = ssl_on(host)
+    sslCAFile = sslCAFile(host)
+    sslPEMKeyFile = sslPEMKeyFile(host)
+    authenticationDatabase = authenticationDatabase(host)
+    username = username(host)
+    authenticationMechanism = authenticationMechanism(host)
+
+    self.class.mongo_command(command, host, retries, ssl, sslCAFile , sslPEMKeyFile, authenticationDatabase, authenticationMechanism, username)
   end
 
-  def self.mongo_command(command, host=nil, retries=4)
+  def self.mongo_command(command, host=nil, retries=4, ssl=false, sslCAFile=nil, sslPEMKeyFile=nil, authenticationDatabase=nil, authenticationMechanism=nil, username=nil)
     begin
       Puppet.debug "Mongo command #{command}"
-      ssl = ssl_on(host)
       Puppet.debug "ssl: #{ssl}"
       if ssl
-        sslCAFile = sslCAFile(host)
-        sslPEMKeyFile = sslPEMKeyFile(host)
-        authenticationDatabase = authenticationDatabase(host)
-        username = username(host)
-        authenticationMechanism = authenticationMechanism(host)
         begin
           output = mongo_eval("printjson(#{command})", 'admin', retries, host, ssl, sslCAFile , sslPEMKeyFile, authenticationDatabase, authenticationMechanism, username)
         rescue => e
@@ -418,6 +449,4 @@ Puppet::Type.type(:mongodb_replset).provide(:mongo, :parent => Puppet::Provider:
     # Parse the JSON output and return
     JSON.parse(output)
   end
-
-
 end
