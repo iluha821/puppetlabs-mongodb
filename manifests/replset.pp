@@ -5,6 +5,7 @@ class mongodb::replset(
 ) {
 
   if $sets {
+  	notice("before create resources mongodb_replset: ${sets}")
     create_resources(mongodb_replset, $sets)
   }
 

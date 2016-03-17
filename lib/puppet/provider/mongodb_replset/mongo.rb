@@ -69,6 +69,7 @@ Puppet::Type.type(:mongodb_replset).provide(:mongo, :parent => Puppet::Provider:
   end
 
   def rs_initiate(conf, master)
+    set_members
     if auth_enabled
       return mongo_command("rs.initiate(#{conf})", initialize_host)
     else
@@ -185,7 +186,6 @@ Puppet::Type.type(:mongodb_replset).provide(:mongo, :parent => Puppet::Provider:
   end
 
   def extract_hosts(hosts_config)
-    Puppet.debug "TEST4: #{hosts_config}"
     return hosts_config[0].keys
   end
 
@@ -214,7 +214,8 @@ Puppet::Type.type(:mongodb_replset).provide(:mongo, :parent => Puppet::Provider:
     end
   end
 
-  def ssl_on(hosts_conf, host)
+  def ssl_on(host)
+    hosts_conf = @property_flush[:members]
     if hosts_conf[0][host]
       return hosts_conf[0][host]['ssl']
     else
@@ -222,7 +223,8 @@ Puppet::Type.type(:mongodb_replset).provide(:mongo, :parent => Puppet::Provider:
     end
   end
 
-  def sslCAFile(hosts_conf, host)
+  def sslCAFile(host)
+    hosts_conf = @property_flush[:members]
     if hosts_conf[0][host]
       return hosts_conf[0][host]['sslCAFile']
     else
@@ -230,7 +232,8 @@ Puppet::Type.type(:mongodb_replset).provide(:mongo, :parent => Puppet::Provider:
     end
   end
 
-  def sslPEMKeyFile(hosts_conf, host)
+  def sslPEMKeyFile(host)
+    hosts_conf = @property_flush[:members]
     if hosts_conf[0][host]
       return hosts_conf[0][host]['sslPEMKeyFile']
     else
@@ -238,7 +241,8 @@ Puppet::Type.type(:mongodb_replset).provide(:mongo, :parent => Puppet::Provider:
     end
   end
 
-  def authenticationDatabase(hosts_conf, host)
+  def authenticationDatabase(host)
+    hosts_conf = @property_flush[:members]
     if hosts_conf[0][host]
       return hosts_conf[0][host]['authenticationDatabase']
     else
@@ -246,7 +250,17 @@ Puppet::Type.type(:mongodb_replset).provide(:mongo, :parent => Puppet::Provider:
     end
   end
 
-  def username(hosts_conf, host)
+  def authenticationMechanism(host)
+    hosts_conf = @property_flush[:members]
+    if hosts_conf[0][host]
+      return hosts_conf[0][host]['authenticationMechanism']
+    else
+      return false
+    end
+  end
+
+  def username(host)
+    hosts_conf = @property_flush[:members]
     if hosts_conf[0][host]
       return hosts_conf[0][host]['username']
     else
@@ -266,8 +280,6 @@ Puppet::Type.type(:mongodb_replset).provide(:mongo, :parent => Puppet::Provider:
 
     if ! @property_flush[:members].empty?
       extracted_hosts=extract_hosts(@property_flush[:members])
-      Puppet.debug "TEST: #{@property_flush[:members]}"
-      Puppet.debug "TEST2: #{extracted_hosts}"
       # Find the alive members so we don't try to add dead members to the replset
       alive_hosts = alive_members(extracted_hosts)
       dead_hosts  = extracted_hosts - alive_hosts
@@ -275,16 +287,8 @@ Puppet::Type.type(:mongodb_replset).provide(:mongo, :parent => Puppet::Provider:
       Puppet.debug "Dead members: #{dead_hosts.inspect}" unless dead_hosts.empty?
       raise Puppet::Error, "Can't connect to any member of replicaset #{self.name}." if alive_hosts.empty?
     else
-      Puppet.debug "pre TEST3"
       alive_hosts = extract_hosts(@property_flush[:members])
-      Puppet.debug "TEST3 #{alive_hosts}"
     end
-
-    Puppet.debug "Pre TEST5"
-    cond1 = @property_flush[:ensure] == :present
-    cond2 = @property_hash[:ensure] != :present
-    cond3 = !master_host(alive_hosts)
-    Puppet.debug "TEST5 #{cond1} and #{cond2} and #{cond3}"
 
     if @property_flush[:ensure] == :present and @property_hash[:ensure] != :present and !master_host(alive_hosts)
       Puppet.debug "Initializing the replset #{self.name}"
@@ -319,9 +323,8 @@ Puppet::Type.type(:mongodb_replset).provide(:mongo, :parent => Puppet::Provider:
         "{ _id: #{id}, host: \"#{host}\"#{arbiter_conf} #{priority_conf} #{hidden_conf} #{votes_conf} }"
       end.join(',')
 
-      Puppet.debug "TEST6 #{hostconf}"
       conf = "{ _id: \"#{self.name}\", members: [ #{hostconf} ] }"
-      Puppet.debug "TEST6b #{conf}"
+      Puppet.debug "mongo conf #{conf}"
       
       # Set replset members with the first host as the master
       output = rs_initiate(conf, alive_hosts[0])
@@ -375,12 +378,14 @@ Puppet::Type.type(:mongodb_replset).provide(:mongo, :parent => Puppet::Provider:
   end
 
   def mongo_command(command, host, retries=4)
-    self.class.ssl_fallback_mongo_command(command, host, retries)
+    Puppet.debug "mongo_command #{command}, host #{host}, retries #{retries} -> trying ssl_fallback"
+    ssl_fallback_mongo_command(command, host, retries)
   end
 
-  def self.mongo_command(command, host=nil, retries=4, ssl = false, sslCAFile = nil, sslPEMKeyFile = nil, authenticationDatabase = nil, username = nil)
+  def self.mongo_command(command, host=nil, retries=4, ssl = false, sslCAFile = nil, sslPEMKeyFile = nil, authenticationDatabase = nil, authenticationMechanism = nil, username = nil)
     begin
-      output = mongo_eval("printjson(#{command})", 'admin', retries, host, ssl, sslCAFile , sslPEMKeyFile, authenticationDatabase, username)
+      Puppet.debug "Mongo command #{command}"
+      output = mongo_eval("printjson(#{command})", 'admin', retries, host, ssl, sslCAFile , sslPEMKeyFile, authenticationDatabase, authenticationMechanism, username)
     rescue Puppet::ExecutionFailure => e
       Puppet.debug "Got an exception: #{e}"
       raise
@@ -397,20 +402,22 @@ Puppet::Type.type(:mongodb_replset).provide(:mongo, :parent => Puppet::Provider:
     JSON.parse(output)
   end
 
-  def self.ssl_fallback_mongo_command(command, host=nil, retries=4)
+  def ssl_fallback_mongo_command(command, host=nil, retries=4)
     begin
       output = self.class.mongo_command(command, host, retries)
     rescue => e
-      #retry with ssl on
-      #if no ssl, raise e
-      #else get       
-      ssl = ssl_on(@property_flush[:members], host)
+      Puppet.debug "mongo command - ssl fallback"
+      ssl = ssl_on(host)
       if ssl
-        sslCAFile = sslCAFile(@property_flush[:members], host)
-        sslPEMKeyFile = sslPEMKeyFile(@property_flush[:members], host)
-        authenticationDatabase = authenticationDatabase(@property_flush[:members], host)
-        username = username(@property_flush[:members], host)
-        output = self.class.mongo_command(command, host, retries, ssl, sslCAFile, sslPEMKeyFile, authenticationDatabase, username)
+        sslCAFile = sslCAFile(host)
+        sslPEMKeyFile = sslPEMKeyFile(host)
+        authenticationDatabase = authenticationDatabase(host)
+        username = username(host)
+        authenticationMechanism = authenticationMechanism(host)
+        Puppet.debug "authenticationMechanism #{authenticationMechanism}"
+        Puppet.debug "authenticationDatabase #{authenticationDatabase}"
+
+        output = self.class.mongo_command(command, host, retries, ssl, sslCAFile, sslPEMKeyFile, authenticationDatabase, authenticationMechanism, username)
       else
         raise e
       end

@@ -44,19 +44,23 @@ class Puppet::Provider::Mongodb < Puppet::Provider
     ipv6
   end
 
-  def self.mongo_cmd(db, host, cmd, ssl = false, sslCAFile = nil, sslPEMKeyFile = nil, authenticationDatabase = nil, username = nil)
+  def self.mongo_cmd(db, host, cmd, ssl = false, sslCAFile = nil, sslPEMKeyFile = nil, authenticationDatabase = nil, authenticationMechanism = nil, username = nil)
     if ipv6_is_enabled
       out = mongo([db, '--quiet', '--ipv6', '--host', host, '--eval', cmd])
     elsif ssl
-      out = mongo([db, 
+
+      out = mongo([
+                db, 
                 '--quiet', 
                 '--host', host, 
                 '--ssl', 
                 '--sslCAFile', sslCAFile, 
                 '--sslPEMKeyFile', sslPEMKeyFile, 
                 '--authenticationDatabase', authenticationDatabase, 
+                '--authenticationMechanism', authenticationMechanism,
                 '--username', username, 
                 '--eval', cmd])
+
     else
       out = mongo([db, '--quiet', '--host', host, '--eval', cmd])
     end
@@ -149,7 +153,7 @@ class Puppet::Provider::Mongodb < Puppet::Provider
   end
 
   # Mongo Command Wrapper
-  def self.mongo_eval(cmd, db = 'admin', retries = 10, ssl = false, sslCAFile = nil, sslPEMKeyFile = nil, authenticationDatabase = nil, username = nil)
+  def self.mongo_eval(cmd, db = 'admin', retries = 10, host = nil, ssl = false, sslCAFile = nil, sslPEMKeyFile = nil, authenticationDatabase = nil, authenticationMechanism = nil,username = nil)
     retry_count = retries
     retry_sleep = 3
     if mongorc_file
@@ -160,9 +164,10 @@ class Puppet::Provider::Mongodb < Puppet::Provider
     retry_count.times do |n|
       begin
         if host
-          out = mongo_cmd(db, host, cmd, ssl, sslCAFile, sslPEMKeyFile, authenticationDatabase, username)
+          print "db #{db} host #{host} cmd #{cmd} ssl #{ssl} cafile #{sslCAFile} sslpem #{sslPEMKeyFile} authdb #{authenticationDatabase} authme #{authenticationMechanism} uname #{username}"
+          out = mongo_cmd(db, host, cmd, ssl, sslCAFile, sslPEMKeyFile, authenticationDatabase, authenticationMechanism, username)
         else
-          out = mongo_cmd(db, get_conn_string, cmd, ssl, sslCAFile, sslPEMKeyFile, authenticationDatabase, username)
+          out = mongo_cmd(db, get_conn_string, cmd, ssl, sslCAFile, sslPEMKeyFile, authenticationDatabase, authenticationMechanism, username)
         end
       rescue => e
         Puppet.debug "Request failed: '#{e.message}' Retry: '#{n}'"
