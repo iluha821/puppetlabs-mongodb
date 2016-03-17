@@ -97,7 +97,7 @@ Puppet::Type.type(:mongodb_replset).provide(:mongo, :parent => Puppet::Provider:
       votes_conf = ", votes: #{votes.to_i} "
     end
 
-    mongo_command("rs.add('{host: '#{host}' #{priority_conf} #{hidden_conf} #{votes_conf} }')", master)
+    mongo_command("rs.add({host: '#{host}' #{priority_conf} #{hidden_conf} #{votes_conf} })", master)
   end
 
   def rs_remove(host, master)
@@ -132,7 +132,8 @@ Puppet::Type.type(:mongodb_replset).provide(:mongo, :parent => Puppet::Provider:
 
   def self.get_replset_properties
     conn_string = get_conn_string
-    output = mongo_command('rs.conf()', conn_string)
+    print "get_replset_properties #{conn_string}"
+    output = ssl_fallback_mongo_command('rs.conf()', conn_string)
     if output['members']
       members = output['members'].collect do |val|
         val['host']

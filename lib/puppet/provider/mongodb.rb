@@ -48,7 +48,6 @@ class Puppet::Provider::Mongodb < Puppet::Provider
     if ipv6_is_enabled
       out = mongo([db, '--quiet', '--ipv6', '--host', host, '--eval', cmd])
     elsif ssl
-
       out = mongo([
                 db, 
                 '--quiet', 
