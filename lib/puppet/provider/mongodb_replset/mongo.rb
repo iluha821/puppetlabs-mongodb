@@ -133,7 +133,7 @@ Puppet::Type.type(:mongodb_replset).provide(:mongo, :parent => Puppet::Provider:
   def self.get_replset_properties
     conn_string = get_conn_string
     print "get_replset_properties #{conn_string}"
-    output = ssl_fallback_mongo_command('rs.conf()', conn_string)
+    output = mongo_command('rs.conf()', conn_string)
     if output['members']
       members = output['members'].collect do |val|
         val['host']
@@ -380,13 +380,29 @@ Puppet::Type.type(:mongodb_replset).provide(:mongo, :parent => Puppet::Provider:
 
   def mongo_command(command, host, retries=4)
     Puppet.debug "mongo_command #{command}, host #{host}, retries #{retries} -> trying ssl_fallback"
-    ssl_fallback_mongo_command(command, host, retries)
+    self.class.mongo_command(command, host, retries)
   end
 
-  def self.mongo_command(command, host=nil, retries=4, ssl = false, sslCAFile = nil, sslPEMKeyFile = nil, authenticationDatabase = nil, authenticationMechanism = nil, username = nil)
+  def self.mongo_command(command, host=nil, retries=4)
     begin
       Puppet.debug "Mongo command #{command}"
-      output = mongo_eval("printjson(#{command})", 'admin', retries, host, ssl, sslCAFile , sslPEMKeyFile, authenticationDatabase, authenticationMechanism, username)
+      ssl = ssl_on(host)
+      Puppet.debug "ssl: #{ssl}"
+      if ssl
+        sslCAFile = sslCAFile(host)
+        sslPEMKeyFile = sslPEMKeyFile(host)
+        authenticationDatabase = authenticationDatabase(host)
+        username = username(host)
+        authenticationMechanism = authenticationMechanism(host)
+        begin
+          output = mongo_eval("printjson(#{command})", 'admin', retries, host, ssl, sslCAFile , sslPEMKeyFile, authenticationDatabase, authenticationMechanism, username)
+        rescue => e
+          Puppet.debug "mongo command - non-ssl fallback"
+          output = mongo_eval("printjson(#{command})", 'admin', retries, host)
+        end
+      else
+        output = mongo_eval("printjson(#{command})", 'admin', retries, host)
+      end
     rescue Puppet::ExecutionFailure => e
       Puppet.debug "Got an exception: #{e}"
       raise
@@ -403,28 +419,5 @@ Puppet::Type.type(:mongodb_replset).provide(:mongo, :parent => Puppet::Provider:
     JSON.parse(output)
   end
 
-  def ssl_fallback_mongo_command(command, host=nil, retries=4)
-    begin
-      output = self.class.mongo_command(command, host, retries)
-    rescue => e
-      Puppet.debug "mongo command - ssl fallback"
-      ssl = ssl_on(host)
-      Puppet.debug "ssl: #{ssl}"
-      if ssl
-        sslCAFile = sslCAFile(host)
-        sslPEMKeyFile = sslPEMKeyFile(host)
-        authenticationDatabase = authenticationDatabase(host)
-        username = username(host)
-        authenticationMechanism = authenticationMechanism(host)
-        Puppet.debug "authenticationMechanism #{authenticationMechanism}"
-        Puppet.debug "authenticationDatabase #{authenticationDatabase}"
-
-        output = self.class.mongo_command(command, host, retries, ssl, sslCAFile, sslPEMKeyFile, authenticationDatabase, authenticationMechanism, username)
-      else
-        raise e
-      end
-    end
-    output
-  end
 
 end
