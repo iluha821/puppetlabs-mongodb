@@ -408,6 +408,7 @@ Puppet::Type.type(:mongodb_replset).provide(:mongo, :parent => Puppet::Provider:
     rescue => e
       Puppet.debug "mongo command - ssl fallback"
       ssl = ssl_on(host)
+      Puppet.debug "ssl: #{ssl}"
       if ssl
         sslCAFile = sslCAFile(host)
         sslPEMKeyFile = sslPEMKeyFile(host)
