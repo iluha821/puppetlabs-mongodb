@@ -37,6 +37,15 @@ For the 0.5 release, the MongoDB module now supports database and user types.
 For the 0.6 release, the MongoDB module now supports basic replicaset features
 (initiating a replicaset and adding members, but without specific options).
 
+For the 2.0.0 release, the MongoDB module now supports adding nodes to existing SSL RS
+and specify for each nodes: priority (default 1), votes (default 1), hidden (default 'false').
+You can also define (globally and per each node):
+* storage_engine: "wiredTiger"
+* dbpath: '/var/lib/mongo'
+* syslog: true (exclusive with logpath)
+* logpath: "" (exclusive with syslog: true)
+* directoryperdb: true
+
 ## Setup
 
 ###What MongoDB affects
@@ -126,6 +135,57 @@ Also in this version we introduced `mongodb::globals`, which is meant more
 for future implementation, where you can configure the main settings for
 this module in a global way, to be used by other classes and defined resources.
 On its own it does nothing.
+
+### Create MongoDB Replica Set 
+Sample RS with 4 nodes, including 1 non voting and hidden. YAML example:
+
+mongodb::server::replset: 'your_replset_name'
+
+mongodb::server::replset_members_with_params:
+  "x1.domain:27017":
+    ssl: true
+    sslCAFile: '/filesystem/crt_file.crt'
+    sslPEMKeyFile: "/filesystem/combo.combo.pem"
+    authenticationDatabase: '$external'
+    authenticationMechanism: 'MONGODB-X509'
+    username: "X509-username"
+  "x2.domain:27017":
+    ssl: true
+    sslCAFile: '/filesystem/crt_file.crt'
+    sslPEMKeyFile: "/filesystem/combo.combo.pem"
+    authenticationDatabase: '$external'
+    authenticationMechanism: 'MONGODB-X509'
+    username: "X509-username"
+  "x3.domain:27017":
+    ssl: true
+    sslCAFile: '/filesystem/crt_file.crt'
+    sslPEMKeyFile: "/filesystem/combo.combo.pem"
+    authenticationDatabase: '$external'
+    authenticationMechanism: 'MONGODB-X509'
+    username: "X509-username"
+  "x4.domain:27017":
+    ssl: true
+    sslCAFile: '/filesystem/crt_file.crt'
+    sslPEMKeyFile: "/filesystem/combo.combo.pem"
+    authenticationDatabase: '$external'
+    authenticationMechanism: 'MONGODB-X509'
+    username: "X509-username"
+    priority: 0
+    hidden: 'true'
+    votes: 2
+
+
+You can specify server properties by:
+class { '::mongodb::server' :
+  storage_engine => $your_props['storage_engine'],
+  dbpath         => $your_props['dbpath'],
+  syslog         => $your_props['syslog'],
+  logpath        => $your_props['logpath'],
+  directoryperdb => $your_props['directoryperdb'],
+} 
+
+
+
 
 ### Create MongoDB database
 
