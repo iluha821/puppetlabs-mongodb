@@ -185,6 +185,8 @@ class { '::mongodb::server' :
 } 
 
 
+If you need different properties per node, you may i.e. specify them in yaml config file and match in a profile based on some node facts
+
 
 
 ### Create MongoDB database
