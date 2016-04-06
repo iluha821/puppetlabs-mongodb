@@ -1,4 +1,5 @@
 require 'yaml'
+require 'json'
 class Puppet::Provider::Mongodb < Puppet::Provider
 
   # Without initvars commands won't work.
@@ -25,6 +26,43 @@ class Puppet::Provider::Mongodb < Puppet::Provider
       file = '/etc/mongodb.conf'
     end
     file
+  end
+
+  def self.ipv6_is_enabled
+    file = get_mongod_conf_file
+    config = YAML.load_file(file)
+    if config.kind_of?(Hash)
+      ipv6 = config['net.ipv6']
+    else # It has to be a key-value store
+      config = {}
+      File.readlines(file).collect do |line|
+        k,v = line.split('=')
+        config[k.rstrip] = v.lstrip.chomp if k and v
+      end
+      ipv6 = config['ipv6']
+    end
+    ipv6
+  end
+
+  def self.mongo_cmd(db, host, cmd, ssl = false, sslCAFile = nil, sslPEMKeyFile = nil, authenticationDatabase = nil, authenticationMechanism = nil, username = nil)
+    if ipv6_is_enabled
+      out = mongo([db, '--quiet', '--ipv6', '--host', host, '--eval', cmd])
+    elsif ssl
+      out = mongo([
+                db, 
+                '--quiet', 
+                '--host', host, 
+                '--ssl', 
+                '--sslCAFile', sslCAFile, 
+                '--sslPEMKeyFile', sslPEMKeyFile, 
+                '--authenticationDatabase', authenticationDatabase, 
+                '--authenticationMechanism', authenticationMechanism,
+                '--username', username, 
+                '--eval', cmd])
+
+    else
+      out = mongo([db, '--quiet', '--host', host, '--eval', cmd])
+    end
   end
 
   def self.get_conn_string
@@ -54,8 +92,11 @@ class Puppet::Provider::Mongodb < Puppet::Provider
 
     if bindip
       first_ip_in_list = bindip.split(',').first
-      if first_ip_in_list.eql? '0.0.0.0'
+      case first_ip_in_list
+      when '0.0.0.0'
         ip_real = '127.0.0.1'
+      when /\[?::0\]?/
+        ip_real = '::1'
       else
         ip_real = first_ip_in_list
       end
@@ -74,20 +115,78 @@ class Puppet::Provider::Mongodb < Puppet::Provider
     "#{ip_real}:#{port_real}"
   end
 
+  def self.db_ismaster
+    cmd_ismaster = 'printjson(db.isMaster())'
+    if mongorc_file
+        cmd_ismaster = mongorc_file + cmd_ismaster
+    end
+    db = 'admin'
+    out = mongo_cmd(db, get_conn_string, cmd_ismaster)
+    out.gsub!(/ObjectId\(([^)]*)\)/, '\1')
+    out.gsub!(/ISODate\((.+?)\)/, '\1 ')
+    out.gsub!(/^Error\:.+/, '')
+    res = JSON.parse out
+
+    return res['ismaster']
+  end
+
+  def db_ismaster
+    self.class.db_ismaster
+  end
+
+  def self.auth_enabled
+    auth_enabled = false
+    file = get_mongod_conf_file
+    config = YAML.load_file(file)
+    if config.kind_of?(Hash)
+      auth_enabled = config['security.authorization']
+    else # It has to be a key-value store
+      config = {}
+      File.readlines(file).collect do |line|
+        k,v = line.split('=')
+        config[k.rstrip] = v.lstrip.chomp if k and v
+      end
+      auth_enabled = config['auth']
+    end
+    return auth_enabled
+  end
+
   # Mongo Command Wrapper
-  def self.mongo_eval(cmd, db = 'admin')
+  def self.mongo_eval(cmd, db = 'admin', retries = 10, host = nil, ssl = false, sslCAFile = nil, sslPEMKeyFile = nil, authenticationDatabase = nil, authenticationMechanism = nil,username = nil)
+    retry_count = retries
+    retry_sleep = 3
     if mongorc_file
         cmd = mongorc_file + cmd
     end
 
-    out = mongo([db, '--quiet', '--host', get_conn_string, '--eval', cmd])
+    out = nil
+    retry_count.times do |n|
+      begin
+        if host
+          print "db #{db} host #{host} cmd #{cmd} ssl #{ssl} cafile #{sslCAFile} sslpem #{sslPEMKeyFile} authdb #{authenticationDatabase} authme #{authenticationMechanism} uname #{username}"
+          out = mongo_cmd(db, host, cmd, ssl, sslCAFile, sslPEMKeyFile, authenticationDatabase, authenticationMechanism, username)
+        else
+          out = mongo_cmd(db, get_conn_string, cmd, ssl, sslCAFile, sslPEMKeyFile, authenticationDatabase, authenticationMechanism, username)
+        end
+      rescue => e
+        Puppet.debug "Request failed: '#{e.message}' Retry: '#{n}'"
+        sleep retry_sleep
+        next
+      end
+      break
+    end
+
+    if !out
+      raise Puppet::ExecutionFailure, "Could not evalute MongoDB shell command: #{cmd}"
+    end
 
     out.gsub!(/ObjectId\(([^)]*)\)/, '\1')
+    out.gsub!(/^Error\:.+/, '')
     out
   end
 
-  def mongo_eval(cmd, db = 'admin')
-    self.class.mongo_eval(cmd, db)
+  def mongo_eval(cmd, db = 'admin', retries = 10, host = nil)
+    self.class.mongo_eval(cmd, db, retries, host)
   end
 
   # Mongo Version checker

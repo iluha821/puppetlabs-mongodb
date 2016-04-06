@@ -15,11 +15,10 @@ Puppet::Type.type(:mongodb_replset).provide(:mongo, :parent => Puppet::Provider:
       false
     end
 
-  commands :mongo => 'mongo'
-
   mk_resource_methods
 
   def initialize(resource={})
+    Puppet.debug "Initialize"
     super(resource)
     @property_flush = {}
   end
@@ -29,7 +28,13 @@ Puppet::Type.type(:mongodb_replset).provide(:mongo, :parent => Puppet::Provider:
   end
 
   def self.instances
-    instance = get_replset_properties
+    Puppet.debug "instances"
+    begin
+      instance = get_replset_properties
+    rescue => e
+      Puppet.debug "Got an exception: #{e}"
+    end
+
     if instance
       # There can only be one replset per node
       [new(instance)]
@@ -39,6 +44,7 @@ Puppet::Type.type(:mongodb_replset).provide(:mongo, :parent => Puppet::Provider:
   end
 
   def self.prefetch(resources)
+    Puppet.debug "Prefetch"
     instances.each do |prov|
       if resource = resources[prov.name]
         resource.provider = prov
@@ -60,6 +66,7 @@ Puppet::Type.type(:mongodb_replset).provide(:mongo, :parent => Puppet::Provider:
   end
 
   def flush
+    Puppet.debug "flush"
     set_members
     @property_hash = self.class.get_replset_properties
   end
@@ -67,23 +74,43 @@ Puppet::Type.type(:mongodb_replset).provide(:mongo, :parent => Puppet::Provider:
   private
 
   def db_ismaster(host)
-    mongo_command("db.isMaster()", host)
+    mongo_command('db.isMaster()', host)
   end
 
   def rs_initiate(conf, master)
-    return mongo_command("rs.initiate(#{conf})", master)
+    Puppet.debug "rs_initiate auth_enabled #{auth_enabled}"
+    if auth_enabled
+      return mongo_command("rs.initiate(#{conf})", initialize_host)
+    else
+      return mongo_command("rs.initiate(#{conf})", master)
+    end
   end
 
   def rs_status(host)
-    mongo_command("rs.status()", host)
+    mongo_command('rs.status()', host)
   end
 
-  def rs_add(host, master)
-    mongo_command("rs.add(\"#{host}\")", master)
+  def rs_add(host, master, priority=nil, hidden=nil, votes=nil)
+    priority_conf = ""
+    if priority
+      priority_conf = ", priority: #{priority.to_i} "
+    end
+
+    hidden_conf = ""
+    if hidden
+      hidden_conf = ", hidden: #{hidden} "
+    end
+
+    votes_conf = ""
+    if votes
+      votes_conf = ", votes: #{votes.to_i} "
+    end
+
+    mongo_command("rs.add({host: '#{host}' #{priority_conf} #{hidden_conf} #{votes_conf} })", master)
   end
 
   def rs_remove(host, master)
-    mongo_command("rs.remove(\"#{host}\")", master)
+    mongo_command("rs.remove('#{host}')", master)
   end
 
   def rs_arbiter
@@ -91,7 +118,15 @@ Puppet::Type.type(:mongodb_replset).provide(:mongo, :parent => Puppet::Provider:
   end
 
   def rs_add_arbiter(host, master)
-    mongo_command("rs.addArb(\"#{host}\")", master)
+    mongo_command("rs.addArb('#{host}')", master)
+  end
+
+  def auth_enabled
+    self.class.auth_enabled
+  end
+
+  def initialize_host
+    @resource[:initialize_host]
   end
 
   def master_host(hosts)
@@ -104,18 +139,9 @@ Puppet::Type.type(:mongodb_replset).provide(:mongo, :parent => Puppet::Provider:
     false
   end
 
-  def self.get_mongod_conf_file
-    if File.exists? '/etc/mongod.conf'
-      file = '/etc/mongod.conf'
-    else
-      file = '/etc/mongodb.conf'
-    end
-    file
-  end
-
   def self.get_replset_properties
-
     conn_string = get_conn_string
+    print "get_replset_properties #{conn_string}"
     output = mongo_command('rs.conf()', conn_string)
     if output['members']
       members = output['members'].collect do |val|
@@ -135,13 +161,21 @@ Puppet::Type.type(:mongodb_replset).provide(:mongo, :parent => Puppet::Provider:
   end
 
   def alive_members(hosts)
+    alive = []
     hosts.select do |host|
       begin
         Puppet.debug "Checking replicaset member #{host} ..."
         status = rs_status(host)
+        Puppet.debug "Status: #{status}"
         if status.has_key?('errmsg') and status['errmsg'] == 'not running with --replSet'
           raise Puppet::Error, "Can't configure replicaset #{self.name}, host #{host} is not supposed to be part of a replicaset."
         end
+
+        if auth_enabled and status.has_key?('errmsg') and (status['errmsg'].include? "unauthorized" or status['errmsg'].include? "not authorized")
+          Puppet.warning "Host #{host} is available, but you are unauthorized because of authentication is enabled: #{auth_enabled}"
+          alive.push(host)
+        end
+
         if status.has_key?('set')
           if status['set'] != self.name
             raise Puppet::Error, "Can't configure replicaset #{self.name}, host #{host} is already part of another replicaset."
@@ -149,20 +183,123 @@ Puppet::Type.type(:mongodb_replset).provide(:mongo, :parent => Puppet::Provider:
 
           # This node is alive and supposed to be a member of our set
           Puppet.debug "Host #{host} is available for replset #{status['set']}"
-          true
+          alive.push(host)
         elsif status.has_key?('info')
           Puppet.debug "Host #{host} is alive but unconfigured: #{status['info']}"
-          true
+          alive.push(host)
         end
       rescue Puppet::ExecutionFailure
         Puppet.warning "Can't connect to replicaset member #{host}."
-
-        false
       end
+    end
+    return alive
+  end
+
+  def extract_hosts(hosts_config)
+    return hosts_config[0].keys
+  end
+
+  def priority(hosts_conf, host)
+    Puppet.debug "Host conf #{hosts_conf} host #{host}"
+    if hosts_conf[0][host]
+      return hosts_conf[0][host]['priority']
+    else
+      return nil
     end
   end
 
+  def hidden(hosts_conf, host)
+    if hosts_conf[0][host]
+      return hosts_conf[0][host]['hidden']
+    else
+      return nil
+    end
+  end
+
+  def votes(hosts_conf, host)
+    if hosts_conf[0][host]
+      return hosts_conf[0][host]['votes']
+    else
+      return nil
+    end
+  end
+
+  def ssl_on(host)
+    return self.class.ssl_on(host, @property_flush[:members])
+  end
+
+  def self.ssl_on(host, hosts_conf)
+    if hosts_conf[0][host]
+      return hosts_conf[0][host]['ssl']
+    else
+      return false
+    end
+  end
+
+
+  def sslCAFile(host)
+    return self.class.sslCAFile(host, @property_flush[:members])
+  end
+
+  def self.sslCAFile(host, hosts_conf)
+    if hosts_conf[0][host]
+      return hosts_conf[0][host]['sslCAFile']
+    else
+      return nil
+    end
+  end
+
+
+  def sslPEMKeyFile(host)
+    return self.class.sslPEMKeyFile(host, @property_flush[:members])
+  end
+
+  def self.sslPEMKeyFile(host, hosts_conf)
+    if hosts_conf[0][host]
+      return hosts_conf[0][host]['sslPEMKeyFile']
+    else
+      return nil
+    end
+  end
+
+  def authenticationDatabase(host)
+    return self.class.authenticationDatabase(host, @property_flush[:members])
+  end
+
+  def self.authenticationDatabase(host, hosts_conf)
+    if hosts_conf[0][host]
+      return hosts_conf[0][host]['authenticationDatabase']
+    else
+      return nil
+    end
+  end
+
+  def authenticationMechanism(host)
+    return self.class.authenticationMechanism(host, @property_flush[:members])
+  end
+
+  def self.authenticationMechanism(host, hosts_conf)
+    if hosts_conf[0][host]
+      return hosts_conf[0][host]['authenticationMechanism']
+    else
+      return nil
+    end
+  end
+
+  def username(host)
+    return self.class.username(host, @property_flush[:members])
+  end
+
+  def self.username(host, hosts_conf)
+    if hosts_conf[0][host]
+      return hosts_conf[0][host]['username']
+    else
+      return nil
+    end
+  end   
+
   def set_members
+    Puppet.debug "Set_members"
     if @property_flush[:ensure] == :absent
       # TODO: I don't know how to remove a node from a replset; unimplemented
       #Puppet.debug "Removing all members from replset #{self.name}"
@@ -173,46 +310,93 @@ Puppet::Type.type(:mongodb_replset).provide(:mongo, :parent => Puppet::Provider:
     end
 
     if ! @property_flush[:members].empty?
+      extracted_hosts=extract_hosts(@property_flush[:members])
       # Find the alive members so we don't try to add dead members to the replset
-      alive_hosts = alive_members(@property_flush[:members])
-      dead_hosts  = @property_flush[:members] - alive_hosts
-      raise Puppet::Error, "Can't connect to any member of replicaset #{self.name}." if alive_hosts.empty?
+      alive_hosts = alive_members(extracted_hosts)
+      dead_hosts  = extracted_hosts - alive_hosts
       Puppet.debug "Alive members: #{alive_hosts.inspect}"
       Puppet.debug "Dead members: #{dead_hosts.inspect}" unless dead_hosts.empty?
+      raise Puppet::Error, "Can't connect to any member of replicaset #{self.name}." if alive_hosts.empty?
     else
-      alive_hosts = []
+      alive_hosts = extract_hosts(@property_flush[:members])
     end
 
-    if @property_flush[:ensure] == :present and @property_hash[:ensure] != :present
+    if @property_flush[:ensure] == :present and @property_hash[:ensure] != :present and !master_host(alive_hosts)
       Puppet.debug "Initializing the replset #{self.name}"
 
       # Create a replset configuration
       hostconf = alive_hosts.each_with_index.map do |host,id|
+        Puppet.debug "Host ID #{host} #{id}"
+
         arbiter_conf = ""
         if rs_arbiter == host
           arbiter_conf = ", arbiterOnly: \"true\""
         end
-        "{ _id: #{id}, host: \"#{host}\"#{arbiter_conf} }"
-      end.join(',')
-      conf = "{ _id: \"#{self.name}\", members: [ #{hostconf} ] }"
+        
+        priority_conf = ""
+        priority_val = priority(@property_flush[:members], host)
+        if priority_val
+          priority_conf = ", priority: #{priority_val.to_i} "
+        end
 
+        hidden_conf = ""
+        hidden_val = hidden(@property_flush[:members], host)
+        if hidden_val
+          hidden_conf = ", hidden: #{hidden_val} "
+        end
+
+        votes_conf = ""
+        votes_val = votes(@property_flush[:members], host)
+        if votes_val
+          votes_conf = ", votes: #{votes_val.to_i} "
+        end
+
+        "{ _id: #{id}, host: \"#{host}\"#{arbiter_conf} #{priority_conf} #{hidden_conf} #{votes_conf} }"
+      end.join(',')
+
+      conf = "{ _id: \"#{self.name}\", members: [ #{hostconf} ] }"
+      Puppet.debug "mongo conf #{conf}"
+      
       # Set replset members with the first host as the master
       output = rs_initiate(conf, alive_hosts[0])
       if output['ok'] == 0
         raise Puppet::Error, "rs.initiate() failed for replicaset #{self.name}: #{output['errmsg']}"
       end
+
+      # Check that the replicaset has finished initialization
+      retry_limit = 10
+      retry_sleep = 3
+
+      retry_limit.times do |n|
+        begin
+          if db_ismaster(alive_hosts[0])['ismaster']
+            Puppet.debug 'Replica set initialization has successfully ended'
+            return
+          else
+            Puppet.debug "Wainting for replica initialization. Retry: #{n}"
+            sleep retry_sleep
+            next
+          end
+        end
+      end
+      raise Puppet::Error, "rs.initiate() failed for replicaset #{self.name}: host #{alive_hosts[0]} didn't become master"
+
     else
       # Add members to an existing replset
+      Puppet.debug "Adding member to existing replset #{self.name}"
       if master = master_host(alive_hosts)
-        current_hosts = db_ismaster(master)['hosts']
+        master_data = db_ismaster(master)
+        current_hosts = master_data['hosts']
+        current_hosts = current_hosts + master_data['arbiters'] if master_data.has_key?('arbiters')
         Puppet.debug "Current Hosts are: #{current_hosts.inspect}"
         newhosts = alive_hosts - current_hosts
+        Puppet.debug "New Hosts are: #{newhosts.inspect}"
         newhosts.each do |host|
           output = {}
           if rs_arbiter == host
             output = rs_add_arbiter(host, master)
           else
-            output = rs_add(host, master)
+            output = rs_add(host, master, priority=priority(@property_flush[:members], host), hidden=hidden(@property_flush[:members], host), votes=votes(@property_flush[:members], host))
           end
           if output['ok'] == 0
             raise Puppet::Error, "rs.add() failed to add host to replicaset #{self.name}: #{output['errmsg']}"
@@ -225,28 +409,34 @@ Puppet::Type.type(:mongodb_replset).provide(:mongo, :parent => Puppet::Provider:
   end
 
   def mongo_command(command, host, retries=4)
-    self.class.mongo_command(command,host,retries)
+    Puppet.debug "mongo_command #{command}, host #{host}, retries #{retries}"
+    ssl = ssl_on(host)
+    sslCAFile = sslCAFile(host)
+    sslPEMKeyFile = sslPEMKeyFile(host)
+    authenticationDatabase = authenticationDatabase(host)
+    username = username(host)
+    authenticationMechanism = authenticationMechanism(host)
+
+    self.class.mongo_command(command, host, retries, ssl, sslCAFile , sslPEMKeyFile, authenticationDatabase, authenticationMechanism, username)
   end
 
-  def self.mongo_command(command, host=nil, retries=4)
-    # Allow waiting for mongod to become ready
-    # Wait for 2 seconds initially and double the delay at each retry
-    wait = 2
+  def self.mongo_command(command, host=nil, retries=4, ssl=false, sslCAFile=nil, sslPEMKeyFile=nil, authenticationDatabase=nil, authenticationMechanism=nil, username=nil)
     begin
-      args = Array.new
-      args << '--quiet'
-      args << ['--host',host] if host
-      args << ['--eval',"printjson(#{command})"]
-      output = mongo(args.flatten)
-    rescue Puppet::ExecutionFailure => e
-      if e =~ /Error: couldn't connect to server/ and wait <= 2**max_wait
-        info("Waiting #{wait} seconds for mongod to become available")
-        sleep wait
-        wait *= 2
-        retry
+      Puppet.debug "Mongo command #{command}"
+      Puppet.debug "ssl: #{ssl}"
+      if ssl
+        begin
+          output = mongo_eval("printjson(#{command})", 'admin', retries, host, ssl, sslCAFile , sslPEMKeyFile, authenticationDatabase, authenticationMechanism, username)
+        rescue => e
+          Puppet.debug "mongo command - non-ssl fallback"
+          output = mongo_eval("printjson(#{command})", 'admin', retries, host)
+        end
       else
-        raise
+        output = mongo_eval("printjson(#{command})", 'admin', retries, host)
       end
+    rescue Puppet::ExecutionFailure => e
+      Puppet.debug "Got an exception: #{e}"
+      raise
     end
 
     # Dirty hack to remove JavaScript objects
@@ -256,7 +446,7 @@ Puppet::Type.type(:mongodb_replset).provide(:mongo, :parent => Puppet::Provider:
     #Hack to avoid non-json empty sets
     output = "{}" if output == "null\n"
 
+    # Parse the JSON output and return
     JSON.parse(output)
   end
-
 end
