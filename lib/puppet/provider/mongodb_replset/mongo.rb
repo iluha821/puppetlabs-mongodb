@@ -87,7 +87,7 @@ Puppet::Type.type(:mongodb_replset).provide(:mongo, :parent => Puppet::Provider:
   end
 
   def rs_status(host)
-    mongo_command('rs.status()', host, 30)
+    mongo_command('rs.status()', host, 120)
   end
 
   def rs_add(host, master, priority=nil, hidden=nil, votes=nil)
